@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Local deployment secrets & server targets
+.env
+.env.*
+!.env.deploy.example
+
+# Local-only personal v0 snapshot (contains personal medical details; never commit)
+reference/
+
+# Temporary scratch & test outputs
+.work/
+.DS_Store
+*.log
