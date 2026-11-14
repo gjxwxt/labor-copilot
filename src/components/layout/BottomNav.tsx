@@ -2,13 +2,13 @@ import type { AppTab } from '../../domain/types';
 
 interface BottomNavProps {
   activeTab: AppTab;
-  hasRunningContraction: boolean;
+  eventCount: number;
   onSelectTab: (tab: AppTab) => void;
 }
 
 export function BottomNav({
   activeTab,
-  hasRunningContraction,
+  eventCount,
   onSelectTab,
 }: BottomNavProps) {
   return (
@@ -23,20 +23,7 @@ export function BottomNav({
           <path d="M9 11l3 3L22 4" />
           <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
         </svg>
-        <span>陪产</span>
-      </button>
-
-      <button
-        type="button"
-        className={`nav-btn${activeTab === 'contractions' ? ' active' : ''}`}
-        aria-current={activeTab === 'contractions' ? 'page' : undefined}
-        onClick={() => onSelectTab('contractions')}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 7v5l3 2" />
-        </svg>
-        <span>{hasRunningContraction ? '计时中' : '宫缩'}</span>
+        <span>当下</span>
       </button>
 
       <button
@@ -51,21 +38,7 @@ export function BottomNav({
           <path d="M8 12h8" />
           <path d="M8 16h5" />
         </svg>
-        <span>交接卡</span>
-      </button>
-
-      <button
-        type="button"
-        className={`nav-btn danger-tab${activeTab === 'redlines' ? ' active' : ''}`}
-        aria-current={activeTab === 'redlines' ? 'page' : undefined}
-        onClick={() => onSelectTab('redlines')}
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-          <path d="M12 9v4" />
-          <path d="M12 17h.01" />
-        </svg>
-        <span>红线</span>
+        <span>{eventCount > 0 ? `战报 (${eventCount})` : '战报'}</span>
       </button>
 
       <button

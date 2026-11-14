@@ -34,7 +34,7 @@ const VALID_RISKS: RiskTag[] = [
 ];
 const VALID_PARTNER: PartnerAccess[] = ['yes', 'no', 'unknown'];
 const VALID_EPIDURAL: EpiduralIntent[] = ['wanted', 'open', 'no', 'unknown'];
-const VALID_TABS: AppTab[] = ['companion', 'contractions', 'handover', 'redlines', 'mom'];
+const VALID_TABS: AppTab[] = ['companion', 'handover', 'mom'];
 const VALID_BREATHING: BreathingPresetId[] = ['4-6', '4-4', '2-2'];
 const VALID_STAGES: StageKey[] = [
   'prep',
@@ -60,6 +60,7 @@ export function createInitialState(now: number = Date.now()): AppState {
     currentStageKey: 'prep',
     stageStartedAt: now,
     checkedItems: {},
+    askedQuestions: {},
     contractions: [],
     events: [],
     activeTab: 'companion',
@@ -160,6 +161,20 @@ export function sanitizeAppState(raw: unknown, now: number = Date.now()): AppSta
     }
   }
 
+  const askedQuestions: Record<string, boolean> = {};
+  if (obj.askedQuestions && typeof obj.askedQuestions === 'object') {
+    for (const [k, v] of Object.entries(obj.askedQuestions as Record<string, unknown>)) {
+      if (typeof v === 'boolean') askedQuestions[k] = v;
+    }
+  }
+
+  const rawTab = obj.activeTab;
+  const activeTab: AppTab = VALID_TABS.includes(rawTab as AppTab)
+    ? (rawTab as AppTab)
+    : rawTab === 'contractions' || rawTab === 'redlines'
+      ? 'companion'
+      : initial.activeTab;
+
   return {
     version: 1,
     profile: sanitizeProfile(obj.profile),
@@ -170,11 +185,10 @@ export function sanitizeAppState(raw: unknown, now: number = Date.now()): AppSta
     stageStartedAt:
       typeof obj.stageStartedAt === 'number' ? obj.stageStartedAt : initial.stageStartedAt,
     checkedItems,
+    askedQuestions,
     contractions: sanitizeContractions(obj.contractions),
     events: sanitizeEvents(obj.events),
-    activeTab: VALID_TABS.includes(obj.activeTab as AppTab)
-      ? (obj.activeTab as AppTab)
-      : initial.activeTab,
+    activeTab,
     breathingPreset: VALID_BREATHING.includes(obj.breathingPreset as BreathingPresetId)
       ? (obj.breathingPreset as BreathingPresetId)
       : initial.breathingPreset,

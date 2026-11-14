@@ -67,4 +67,19 @@ describe('handover summary, timeline export & storage sanitization', () => {
     expect(recovered.activeTab).toBe('companion');
     expect(recovered.contractions).toHaveLength(1);
   });
+
+  it('migrates legacy v1 tabs and sanitizes askedQuestions map', () => {
+    const migrated = sanitizeAppState(
+      {
+        activeTab: 'contractions',
+        askedQuestions: { q_prep_policy: true, bad: 'yes' },
+      },
+      1000,
+    );
+    expect(migrated.activeTab).toBe('companion');
+    expect(migrated.askedQuestions).toEqual({ q_prep_policy: true });
+
+    const migratedRedlines = sanitizeAppState({ activeTab: 'redlines' }, 1000);
+    expect(migratedRedlines.activeTab).toBe('companion');
+  });
 });

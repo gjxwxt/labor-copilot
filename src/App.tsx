@@ -17,31 +17,38 @@ import {
   resolveStages,
 } from './domain/stages';
 import {
-  getRunningContraction,
+  evaluateLaborRule,
   removeContraction,
   startContraction,
   stopContraction,
   updateContractionIntensity,
 } from './domain/contractions';
+import {
+  evaluateEventTransition,
+  getPostpartumCountdown,
+  getStageGroup,
+  type StageSuggestionPayload,
+  type UrgentAlertPayload,
+} from './domain/autoAdvance';
 import { createClinicalEvent } from './domain/timeline';
 import { LocalStorageAdapter } from './domain/storage';
 import { AppHeader } from './components/layout/AppHeader';
 import { BottomNav } from './components/layout/BottomNav';
 import { CompanionView } from './components/companion/CompanionView';
-import { ContractionsView } from './components/contractions/ContractionsView';
 import { HandoverView } from './components/handover/HandoverView';
-import { RedLinesView } from './components/redlines/RedLinesView';
 import { MomView } from './components/mom/MomView';
+import { ContractionBar } from './components/contractions/ContractionBar';
+import { ContractionsDrawer } from './components/contractions/ContractionsDrawer';
+import { RedLinesDialog } from './components/redlines/RedLinesDialog';
+import { UrgentAlertModal } from './components/redlines/UrgentAlertModal';
 import { ProfileDialog } from './components/onboarding/ProfileDialog';
 
 const THEME_STORAGE_KEY = 'labor-copilot-theme';
 const storage = new LocalStorageAdapter();
 
 const TAB_TITLES: Record<AppTab, string> = {
-  companion: '陪产主线 | 护航 · 产程陪产助手',
-  contractions: '宫缩计时 | 护航 · 产程陪产助手',
-  handover: '医护交接卡 | 护航 · 产程陪产助手',
-  redlines: '高危红线 | 护航 · 产程陪产助手',
+  companion: '当下陪产 | 护航 · 产程陪产助手',
+  handover: '战报交接 | 护航 · 产程陪产助手',
   mom: '给她看 | 护航 · 产程陪产助手',
 };
 
@@ -73,19 +80,25 @@ export function App() {
   const [state, setState] = useState<AppState>(() => storage.load());
   const [now, setNow] = useState<number>(() => Date.now());
   const [profileOpen, setProfileOpen] = useState(false);
+  const [contractionsOpen, setContractionsOpen] = useState(false);
+  const [redLinesOpen, setRedLinesOpen] = useState(false);
   const [theme, setTheme] = useState<ThemePreference>(() => readInitialTheme());
   const [wakeLockActive, setWakeLockActive] = useState(false);
+
+  const [eventSuggestion, setEventSuggestion] = useState<StageSuggestionPayload | null>(null);
+  const [goSuggestionDismissed, setGoSuggestionDismissed] = useState(false);
+  const [activeUrgentAlert, setActiveUrgentAlert] = useState<UrgentAlertPayload | null>(null);
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Record<string, boolean>>({});
+  const [nurseBrightNonce, setNurseBrightNonce] = useState(0);
 
   const mainRef = useRef<HTMLElement>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const wakeLockSupported = typeof navigator !== 'undefined' && 'wakeLock' in navigator;
 
-  // Persist app state to localStorage
   useEffect(() => {
     storage.save(state);
   }, [state]);
 
-  // Live 1s clock for stage duration and contraction stopwatch
   useEffect(() => {
     const timer = window.setInterval(() => {
       setNow(Date.now());
@@ -93,7 +106,6 @@ export function App() {
     return () => window.clearInterval(timer);
   }, []);
 
-  // Sync theme meta & cross-tab theme preference
   useEffect(() => {
     applyThemeMeta(theme);
   }, [theme]);
@@ -108,12 +120,10 @@ export function App() {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  // Update document title for active tab
   useEffect(() => {
     document.title = TAB_TITLES[state.activeTab];
   }, [state.activeTab]);
 
-  // Wake Lock management
   useEffect(() => {
     if (!wakeLockSupported) return;
 
@@ -177,11 +187,51 @@ export function App() {
   const safeStageKey = clampStageKey(state.currentStageKey, resolvedStages);
   const stageNav = getStageNavigation(safeStageKey, resolvedStages);
 
+  const contractionEval = useMemo(
+    () => evaluateLaborRule(state.contractions, state.profile, now),
+    [state.contractions, state.profile, now],
+  );
+  const postpartumCountdown = useMemo(
+    () => getPostpartumCountdown(state.events, now),
+    [state.events, now],
+  );
+
+  // Trigger urgent takeover alert on prolonged contraction / tachysystole
+  useEffect(() => {
+    if (contractionEval.level !== 'urgent_alert') return;
+    const latestId =
+      state.contractions.length > 0
+        ? state.contractions[state.contractions.length - 1]!.id
+        : 'none';
+    const alertId = `ct_${latestId}_${contractionEval.headline}`;
+    if (dismissedAlertIds[alertId] || activeUrgentAlert?.id === alertId) return;
+    setActiveUrgentAlert({
+      id: alertId,
+      title: contractionEval.headline,
+      detail: contractionEval.detail,
+      primaryActionLabel: '亮出白底交接卡给护士看',
+      secondaryActionLabel: '我已呼叫医护，先关提醒',
+    });
+  }, [contractionEval, state.contractions, dismissedAlertIds, activeUrgentAlert]);
+
   if (!stageNav) {
     return null;
   }
 
-  const runningContraction = getRunningContraction(state.contractions);
+  const stageGroup = getStageGroup(stageNav.stage.key);
+
+  const activeStageSuggestion: StageSuggestionPayload | null =
+    eventSuggestion ??
+    (contractionEval.level === 'go' &&
+    safeStageKey === 'prep' &&
+    !goSuggestionDismissed &&
+    resolvedStages.some((s) => s.key === 'latent')
+      ? {
+          targetKey: 'latent',
+          targetName: '规律宫缩',
+          message: contractionEval.headline,
+        }
+      : null);
 
   const scrollMainToTop = () => {
     if (mainRef.current) {
@@ -204,12 +254,39 @@ export function App() {
     scrollMainToTop();
   };
 
+  const handleQuickStart = (updates: Partial<BirthProfile>, targetStage: StageKey) => {
+    const mergedProfile: BirthProfile = {
+      ...state.profile,
+      ...updates,
+    };
+    const nextStages = resolveStages(mergedProfile, STAGE_TEMPLATES);
+    const safeTarget = clampStageKey(targetStage, nextStages);
+    setState((prev) => ({
+      ...prev,
+      profile: mergedProfile,
+      hasCompletedOnboarding: true,
+      currentStageKey: safeTarget,
+      stageStartedAt: Date.now(),
+    }));
+    scrollMainToTop();
+  };
+
   const handleToggleCheck = (itemId: string) => {
     setState((prev) => ({
       ...prev,
       checkedItems: {
         ...prev.checkedItems,
         [itemId]: !prev.checkedItems[itemId],
+      },
+    }));
+  };
+
+  const handleToggleAsked = (questionId: string) => {
+    setState((prev) => ({
+      ...prev,
+      askedQuestions: {
+        ...prev.askedQuestions,
+        [questionId]: !prev.askedQuestions[questionId],
       },
     }));
   };
@@ -272,10 +349,30 @@ export function App() {
   ) => {
     const ts = Date.now();
     const newEvent = createClinicalEvent(createId('ev'), type, ts, detail, meta);
+    const transition = evaluateEventTransition(
+      newEvent,
+      safeStageKey,
+      state.profile,
+      resolvedStages,
+    );
+
     setState((prev) => ({
       ...prev,
       events: [...prev.events, newEvent],
+      ...(transition.autoAdvanceTo
+        ? {
+            currentStageKey: transition.autoAdvanceTo,
+            stageStartedAt: ts,
+          }
+        : {}),
     }));
+
+    if (transition.urgentAlert) {
+      setActiveUrgentAlert(transition.urgentAlert);
+    }
+    if (transition.suggestStage) {
+      setEventSuggestion(transition.suggestStage);
+    }
   };
 
   const handleRemoveEvent = (id: string) => {
@@ -320,13 +417,25 @@ export function App() {
   };
 
   const handleResetAllData = () => {
+    setEventSuggestion(null);
+    setActiveUrgentAlert(null);
+    setDismissedAlertIds({});
+    setGoSuggestionDismissed(false);
     setState(storage.clear());
     scrollMainToTop();
+  };
+
+  const dismissUrgentModal = () => {
+    if (activeUrgentAlert) {
+      setDismissedAlertIds((prev) => ({ ...prev, [activeUrgentAlert.id]: true }));
+    }
+    setActiveUrgentAlert(null);
   };
 
   return (
     <>
       <AppHeader
+        stageGroup={stageGroup}
         stageIndex={stageNav.index}
         stageTotal={stageNav.total}
         stageName={stageNav.stage.name}
@@ -334,6 +443,8 @@ export function App() {
         profile={state.profile}
         wakeLockActive={wakeLockActive}
         wakeLockSupported={wakeLockSupported}
+        postpartumCountdown={postpartumCountdown}
+        onOpenRedLines={() => setRedLinesOpen(true)}
         onOpenProfile={() => setProfileOpen(true)}
       />
 
@@ -347,41 +458,35 @@ export function App() {
             prevKey={stageNav.prevKey}
             nextKey={stageNav.nextKey}
             checkedItems={state.checkedItems}
+            askedQuestions={state.askedQuestions}
+            stageSuggestion={activeStageSuggestion}
+            postpartumCountdown={postpartumCountdown}
+            onQuickStart={handleQuickStart}
             onSelectStage={handleSelectStage}
             onToggleCheck={handleToggleCheck}
+            onToggleAsked={handleToggleAsked}
+            onDismissSuggestion={() => {
+              if (eventSuggestion) {
+                setEventSuggestion(null);
+              } else {
+                setGoSuggestionDismissed(true);
+              }
+            }}
             onOpenProfile={() => setProfileOpen(true)}
-            onGoRedLines={() => handleSelectTab('redlines')}
-          />
-        ) : null}
-
-        {state.activeTab === 'contractions' ? (
-          <ContractionsView
-            profile={state.profile}
-            records={state.contractions}
-            now={now}
-            onStart={handleStartContraction}
-            onStop={handleStopContraction}
-            onSetIntensity={handleSetIntensity}
-            onRemove={handleRemoveContraction}
-            onClearAll={handleClearContractions}
+            onGoRedLines={() => setRedLinesOpen(true)}
+            onGoMom={() => handleSelectTab('mom')}
           />
         ) : null}
 
         {state.activeTab === 'handover' ? (
           <HandoverView
+            key={nurseBrightNonce}
             state={state}
             currentStage={stageNav.stage}
             now={now}
+            initialNurseBright={nurseBrightNonce > 0}
             onAddEvent={handleAddEvent}
             onRemoveEvent={handleRemoveEvent}
-          />
-        ) : null}
-
-        {state.activeTab === 'redlines' ? (
-          <RedLinesView
-            profile={state.profile}
-            currentStageKey={stageNav.stage.key}
-            onGoHandover={() => handleSelectTab('handover')}
           />
         ) : null}
 
@@ -394,10 +499,53 @@ export function App() {
         ) : null}
       </main>
 
+      <ContractionBar
+        profile={state.profile}
+        records={state.contractions}
+        now={now}
+        compactForMom={state.activeTab === 'mom'}
+        onStart={handleStartContraction}
+        onStop={handleStopContraction}
+        onSetIntensity={handleSetIntensity}
+        onOpenDrawer={() => setContractionsOpen(true)}
+      />
+
       <BottomNav
         activeTab={state.activeTab}
-        hasRunningContraction={Boolean(runningContraction)}
+        eventCount={state.events.length}
         onSelectTab={handleSelectTab}
+      />
+
+      <ContractionsDrawer
+        open={contractionsOpen}
+        profile={state.profile}
+        records={state.contractions}
+        now={now}
+        onClose={() => setContractionsOpen(false)}
+        onStart={handleStartContraction}
+        onStop={handleStopContraction}
+        onSetIntensity={handleSetIntensity}
+        onRemove={handleRemoveContraction}
+        onClearAll={handleClearContractions}
+      />
+
+      <RedLinesDialog
+        open={redLinesOpen}
+        profile={state.profile}
+        currentStageKey={stageNav.stage.key}
+        onClose={() => setRedLinesOpen(false)}
+        onGoHandover={() => handleSelectTab('handover')}
+      />
+
+      <UrgentAlertModal
+        alert={activeUrgentAlert}
+        onOpenHandover={() => {
+          dismissUrgentModal();
+          setContractionsOpen(false);
+          setNurseBrightNonce((n) => n + 1);
+          handleSelectTab('handover');
+        }}
+        onDismiss={dismissUrgentModal}
       />
 
       <ProfileDialog
@@ -414,4 +562,5 @@ export function App() {
     </>
   );
 }
+
 export default App;

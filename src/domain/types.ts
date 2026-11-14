@@ -56,7 +56,9 @@ export interface ClinicalEvent {
   meta?: ClinicalEventMeta;
 }
 
-export type AppTab = 'companion' | 'contractions' | 'handover' | 'redlines' | 'mom';
+export type AppTab = 'companion' | 'handover' | 'mom';
+
+export type StageGroupKey = 'home' | 'hospital' | 'recovery';
 
 export type BreathingPresetId = '4-6' | '4-4' | '2-2';
 
@@ -160,6 +162,7 @@ export interface AppState {
   currentStageKey: StageKey;
   stageStartedAt: number;
   checkedItems: Record<string, boolean>;
+  askedQuestions: Record<string, boolean>;
   contractions: ContractionRecord[];
   events: ClinicalEvent[];
   activeTab: AppTab;

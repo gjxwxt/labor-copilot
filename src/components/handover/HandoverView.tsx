@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type {
   AmnioticFluidStatus,
   AppState,
@@ -15,11 +15,14 @@ import {
 } from '../../domain/timeline';
 import { buildHandoverSummary } from '../../domain/handover';
 import { formatSecondsCompact, formatTimeOfDay } from '../../domain/contractions';
+import { buildBirthKeepsakeData, renderBirthKeepsakePng } from '../../domain/keepsake';
+import { useDialogControl } from '../common/useDialogControl';
 
 interface HandoverViewProps {
   state: AppState;
   currentStage: ResolvedStage;
   now: number;
+  initialNurseBright?: boolean;
   onAddEvent: (type: ClinicalEventType, detail?: string, meta?: ClinicalEventMeta) => void;
   onRemoveEvent: (id: string) => void;
 }
@@ -30,16 +33,23 @@ export function HandoverView({
   state,
   currentStage,
   now,
+  initialNurseBright = false,
   onAddEvent,
   onRemoveEvent,
 }: HandoverViewProps) {
-  const [nurseBright, setNurseBright] = useState(false);
+  const [nurseBright, setNurseBright] = useState(initialNurseBright);
+  const [fullscreenPlacardOpen, setFullscreenPlacardOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>(null);
   const [dilationCm, setDilationCm] = useState<number>(3);
   const [noteText, setNoteText] = useState('');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [savingPng, setSavingPng] = useState(false);
 
   const modalRef = useRef<HTMLDialogElement>(null);
+  const placardRef = useRef<HTMLDialogElement>(null);
+
+  useDialogControl(modalRef, Boolean(modalMode), () => setModalMode(null), true);
+  useDialogControl(placardRef, fullscreenPlacardOpen, () => setFullscreenPlacardOpen(false), true);
 
   const summary = buildHandoverSummary(
     state.profile,
@@ -48,52 +58,59 @@ export function HandoverView({
     currentStage,
     now,
   );
+  const keepsake = buildBirthKeepsakeData(state, now);
 
-  useEffect(() => {
-    const dialog = modalRef.current;
-    if (!dialog) return;
-    if (modalMode) {
-      if (!dialog.open) dialog.showModal();
-    } else if (dialog.open) {
-      dialog.close();
-    }
-  }, [modalMode]);
-
-  useEffect(() => {
-    const dialog = modalRef.current;
-    if (!dialog) return;
-    const onClose = () => {
-      dialog.returnValue = '';
-      setModalMode(null);
-    };
-    dialog.addEventListener('close', onClose);
-    return () => dialog.removeEventListener('close', onClose);
-  }, []);
+  const notify = (msg: string) => {
+    setCopyFeedback(msg);
+    window.setTimeout(() => setCopyFeedback(null), 2800);
+  };
 
   const handleCopyMarkdown = async () => {
     const md = exportHandoverMarkdown(summary, state, now);
     try {
       await navigator.clipboard.writeText(md);
-      setCopyFeedback('已复制交接战报（Markdown）');
+      notify('已复制战报（Markdown，可直接粘贴进半亩/备忘录）');
     } catch {
-      downloadFile(md, `labor-handover-${formatTimeOfDay(now).replace(':', '')}.md`, 'text/markdown');
-      setCopyFeedback('已下载交接战报（.md）');
+      downloadFile(
+        new Blob([md], { type: 'text/markdown' }),
+        `labor-handover-${formatTimeOfDay(now).replace(':', '')}.md`,
+      );
+      notify('已下载交接战报（.md）');
     }
-    setTimeout(() => setCopyFeedback(null), 2600);
   };
 
   const handleDownloadJson = () => {
     const json = exportStateJson(state);
-    downloadFile(json, `labor-backup-${formatTimeOfDay(now).replace(':', '')}.json`, 'application/json');
-    setCopyFeedback('已导出本地 JSON 备份');
-    setTimeout(() => setCopyFeedback(null), 2600);
+    downloadFile(
+      new Blob([json], { type: 'application/json' }),
+      `labor-backup-${formatTimeOfDay(now).replace(':', '')}.json`,
+    );
+    notify('已导出本地 JSON 备份');
+  };
+
+  const handleDownloadKeepsakePng = async () => {
+    setSavingPng(true);
+    try {
+      const blob = await renderBirthKeepsakePng(keepsake);
+      if (blob) {
+        downloadFile(
+          blob,
+          `labor-keepsake-${formatTimeOfDay(now).replace(':', '')}.png`,
+        );
+        notify('已生成迎新时间轴纪念长图 (.png)');
+      } else {
+        notify('当前环境不支持长图导出，请改用 Markdown 导出');
+      }
+    } finally {
+      setSavingPng(false);
+    }
   };
 
   return (
     <div className="view-wrap">
       <section className="card" aria-labelledby="quick-log-heading">
         <div className="eyebrow" id="quick-log-heading">
-          <span>一键记录关键节点（自动同步给医护看）</span>
+          <span>关键时刻 1 秒打点（自动驱动阶段与交接卡）</span>
         </div>
         <div className="quick-log-grid">
           <button
@@ -126,7 +143,7 @@ export function HandoverView({
           </button>
           <button
             type="button"
-            className="quick-log-btn"
+            className="quick-log-btn accent-log"
             onClick={() => onAddEvent('baby_born')}
           >
             + 宝宝出生
@@ -139,7 +156,7 @@ export function HandoverView({
               setModalMode('note');
             }}
           >
-            + 记一条备注
+            + 记备注
           </button>
         </div>
       </section>
@@ -150,15 +167,25 @@ export function HandoverView({
       >
         <div className="eyebrow">
           <span id="handover-card-title" style={{ color: 'var(--blue)' }}>
-            1 分钟医护交接卡（可直接递给医生/助产士）
+            医护交接快报（分诊大字摘要）
           </span>
-          <button
-            type="button"
-            className="mini-del-btn"
-            onClick={() => setNurseBright((v) => !v)}
-          >
-            {nurseBright ? '切回护眼模式' : '医护亮底模式'}
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              className="mini-del-btn"
+              onClick={() => setNurseBright((v) => !v)}
+            >
+              {nurseBright ? '护眼' : '亮底'}
+            </button>
+            <button
+              type="button"
+              className="mini-del-btn"
+              style={{ borderColor: 'var(--blue-border)', color: 'var(--blue)', fontWeight: 800 }}
+              onClick={() => setFullscreenPlacardOpen(true)}
+            >
+              全屏递给护士
+            </button>
+          </div>
         </div>
 
         <p style={{ fontSize: 15, fontWeight: 800, color: 'var(--fg)' }}>
@@ -188,68 +215,71 @@ export function HandoverView({
           </div>
         ) : null}
 
-        <div className="handover-grid">
-          <div className="handover-kv">
-            <div className="handover-k">破水状态</div>
-            <div className={`handover-v${summary.waterStatus.warningFlag ? ' warn' : ''}`}>
+        <div className="triage-tier1-grid">
+          <div className="triage-kv primary">
+            <div className="handover-k">破水与羊水</div>
+            <div className={`triage-big-val${summary.waterStatus.warningFlag ? ' warn' : ''}`}>
               {summary.waterStatus.broken && summary.waterStatus.at
-                ? `${formatTimeOfDay(summary.waterStatus.at)}（${summary.waterStatus.elapsedText}）`
-                : '暂未破水'}
+                ? `${formatTimeOfDay(summary.waterStatus.at)}`
+                : '未破水'}
             </div>
-            {summary.waterStatus.broken ? (
-              <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', marginTop: 3 }}>
-                羊水：{AMNIOTIC_FLUID_LABELS[summary.waterStatus.fluidStatus ?? 'unknown']}
-              </div>
-            ) : null}
+            <div className="triage-sub">
+              {summary.waterStatus.broken
+                ? `${summary.waterStatus.elapsedText} · ${
+                    AMNIOTIC_FLUID_LABELS[summary.waterStatus.fluidStatus ?? 'unknown']
+                  }`
+                : '有温热流水请立刻记录'}
+            </div>
           </div>
 
-          <div className="handover-kv">
+          <div className="triage-kv primary">
             <div className="handover-k">近 1 小时宫缩</div>
-            <div className="handover-v">
+            <div className="triage-big-val">
               {summary.contractionStats.recent1hCount > 0
-                ? `${summary.contractionStats.recent1hCount} 次 · 约 ${
-                    summary.contractionStats.recent1hAvgIntervalMin ?? '—'
-                  } 分`
-                : '暂无规律记录'}
+                ? `${summary.contractionStats.recent1hCount} 次`
+                : '暂无记录'}
             </div>
-            <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', marginTop: 3 }}>
-              平均持续 {formatSecondsCompact(summary.contractionStats.recent1hAvgDurationSec)}
+            <div className="triage-sub">
+              {summary.contractionStats.recent1hCount > 0
+                ? `均隔 ${summary.contractionStats.recent1hAvgIntervalMin ?? '—'}分 · 均长 ${formatSecondsCompact(
+                    summary.contractionStats.recent1hAvgDurationSec,
+                  )}`
+                : '用底部计时条随手点即可'}
             </div>
           </div>
 
-          <div className="handover-kv">
-            <div className="handover-k">最近内检记录</div>
+          <div className="triage-kv">
+            <div className="handover-k">最近内检开指</div>
             <div className="handover-v">
               {summary.cervixStatus.at
                 ? `${summary.cervixStatus.dilationCm ?? '—'} 公分`
                 : '暂未记录'}
             </div>
             {summary.cervixStatus.at ? (
-              <div style={{ fontSize: 12.5, color: 'var(--fg-muted)', marginTop: 3 }}>
-                {formatTimeOfDay(summary.cervixStatus.at)}
-              </div>
+              <div className="triage-sub">{formatTimeOfDay(summary.cervixStatus.at)}</div>
             ) : null}
           </div>
 
-          <div className="handover-kv">
-            <div className="handover-k">无痛镇痛状态</div>
+          <div className="triage-kv">
+            <div className="handover-k">无痛镇痛</div>
             <div className="handover-v">
               {summary.epiduralStatus.placed && summary.epiduralStatus.at
-                ? `已实施（${formatTimeOfDay(summary.epiduralStatus.at)}）`
+                ? `已打 (${formatTimeOfDay(summary.epiduralStatus.at)})`
                 : summary.epiduralStatus.intentLabel}
             </div>
           </div>
         </div>
       </section>
 
-      <section className="card" aria-labelledby="timeline-list-title">
-        <div className="eyebrow" id="timeline-list-title">
-          <span>时间线打点记录（{state.events.length} 条）</span>
+      <section className="card keepsake-card" aria-labelledby="keepsake-title">
+        <div className="eyebrow">
+          <span id="keepsake-title">宝宝迎新时间轴 & 战报留档</span>
+          <span>共 {state.events.length} 节点</span>
         </div>
 
         {summary.recentEvents.length === 0 ? (
           <p style={{ fontSize: 14, color: 'var(--fg-muted)' }}>
-            点击上方快捷按钮记录入院、破水、内检和宝宝出生时刻，即可自动生成可导出时间线。
+            陪产途中点击上方按钮记录入院、破水、无痛、内检与宝宝出生，即自动串成时间轴并可保存为长图或 Markdown。
           </p>
         ) : (
           <ul className="ct-history-list">
@@ -269,9 +299,17 @@ export function HandoverView({
           </ul>
         )}
 
-        <div className="btn-row" style={{ marginTop: 14 }}>
-          <button type="button" className="btn primary" onClick={handleCopyMarkdown}>
-            复制 / 导出战报 (.md)
+        <div className="btn-row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={savingPng}
+            onClick={handleDownloadKeepsakePng}
+          >
+            {savingPng ? '生成中...' : '保存纪念长图 (.png)'}
+          </button>
+          <button type="button" className="btn" onClick={handleCopyMarkdown}>
+            复制战报 (.md)
           </button>
           <button type="button" className="btn ghost" onClick={handleDownloadJson}>
             备份 JSON
@@ -294,6 +332,102 @@ export function HandoverView({
         ) : null}
       </section>
 
+      {/* Fullscreen High-Contrast Nurse Handover Placard */}
+      <dialog
+        ref={placardRef}
+        className="copilot-dialog nurse-placard-dialog"
+        aria-labelledby="nurse-placard-title"
+        {...({ closedby: 'any' } as Record<string, string>)}
+      >
+        <div className="nurse-placard-sheet">
+          <div className="nurse-placard-header">
+            <div>
+              <div className="nurse-placard-tag">产房交接速览 · 本地实时记录</div>
+              <h2 id="nurse-placard-title" className="nurse-placard-title">
+                {summary.profileSummary} · {summary.currentStageName}
+              </h2>
+            </div>
+            <button
+              type="button"
+              className="dialog-close"
+              aria-label="退出全屏交接卡"
+              onClick={() => setFullscreenPlacardOpen(false)}
+            >
+              ✕
+            </button>
+          </div>
+
+          {summary.riskAlerts.length > 0 ? (
+            <div className="nurse-placard-alerts">
+              {summary.riskAlerts.map((alert) => (
+                <div
+                  key={alert.id}
+                  className={`nurse-alert-chip${alert.urgent ? ' urgent' : ''}`}
+                >
+                  <strong>{alert.label}：</strong>
+                  {alert.note}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="nurse-placard-grid">
+            <div className="nurse-metric-card">
+              <div className="nurse-metric-k">破水状态</div>
+              <div className={`nurse-metric-v${summary.waterStatus.warningFlag ? ' warn' : ''}`}>
+                {summary.waterStatus.broken && summary.waterStatus.at
+                  ? `${formatTimeOfDay(summary.waterStatus.at)}（已 ${summary.waterStatus.elapsedText}）`
+                  : '暂未破水'}
+              </div>
+              {summary.waterStatus.broken ? (
+                <div className="nurse-metric-sub">
+                  羊水：{AMNIOTIC_FLUID_LABELS[summary.waterStatus.fluidStatus ?? 'unknown']}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="nurse-metric-card">
+              <div className="nurse-metric-k">近 1 小时宫缩</div>
+              <div className="nurse-metric-v">
+                {summary.contractionStats.recent1hCount > 0
+                  ? `${summary.contractionStats.recent1hCount} 次 · 约 ${
+                      summary.contractionStats.recent1hAvgIntervalMin ?? '—'
+                    } 分一次`
+                  : '暂无规律记录'}
+              </div>
+              <div className="nurse-metric-sub">
+                平均持续 {formatSecondsCompact(summary.contractionStats.recent1hAvgDurationSec)}
+              </div>
+            </div>
+
+            <div className="nurse-metric-card">
+              <div className="nurse-metric-k">最近内检开指</div>
+              <div className="nurse-metric-v">
+                {summary.cervixStatus.at
+                  ? `${summary.cervixStatus.dilationCm ?? '—'} 公分（${formatTimeOfDay(
+                      summary.cervixStatus.at,
+                    )}）`
+                  : '暂未记录'}
+              </div>
+            </div>
+
+            <div className="nurse-metric-card">
+              <div className="nurse-metric-k">无痛镇痛</div>
+              <div className="nurse-metric-v">
+                {summary.epiduralStatus.placed && summary.epiduralStatus.at
+                  ? `已实施（${formatTimeOfDay(summary.epiduralStatus.at)}）`
+                  : summary.epiduralStatus.intentLabel}
+              </div>
+            </div>
+          </div>
+
+          <p className="nurse-placard-foot">
+            时间核对：{formatTimeOfDay(now)} · 仅供医护分诊参考，临床处理以院内体征检查为准
+          </p>
+        </div>
+      </dialog>
+
+      {/* Quick Event Logging Dialog */}
       <dialog
         ref={modalRef}
         className="copilot-dialog"
@@ -377,7 +511,7 @@ export function HandoverView({
           {modalMode === 'note' ? (
             <div className="field-group">
               <label htmlFor="custom-event-note" className="field-label">
-                简短记录（例如：医生查看胎监良好、换球囊等）
+                简短记录（例如：胎监良好、已换球囊、进待产室）
               </label>
               <input
                 id="custom-event-note"
@@ -415,8 +549,7 @@ export function HandoverView({
   );
 }
 
-function downloadFile(content: string, filename: string, mimeType: string) {
-  const blob = new Blob([content], { type: mimeType });
+function downloadFile(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
