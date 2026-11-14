@@ -1,0 +1,181 @@
+:root {
+  color-scheme: light dark;
+
+  --bg-light: #f4f6fa;
+  --bg-dark: #0b0f14;
+  --surface-light: #ffffff;
+  --surface-dark: #141b23;
+  --surface-2-light: #eaeff6;
+  --surface-2-dark: #1c2530;
+  --raised-light: #dfe6f0;
+  --raised-dark: #232e3c;
+
+  --border-light: #cfd8e4;
+  --border-dark: #2b3746;
+  --border-strong-light: #9fb0c5;
+  --border-strong-dark: #3d4d61;
+
+  --fg-light: #101824;
+  --fg-dark: #eef3f9;
+  --fg-muted-light: #435266;
+  --fg-muted-dark: #9aa8b8;
+  --fg-subtle-light: #5e6e82;
+  --fg-subtle-dark: #7d8c9e;
+
+  --blue-light: #0f62cc;
+  --blue-dark: #4d9fff;
+  --blue-fg-light: #ffffff;
+  --blue-fg-dark: #041322;
+  --blue-dim-light: #e5f0ff;
+  --blue-dim-dark: #10273f;
+  --blue-border-light: #8cb9f5;
+  --blue-border-dark: #275b8c;
+
+  --green-light: #157333;
+  --green-dark: #3fb950;
+  --green-dim-light: #e5f6ea;
+  --green-dim-dark: #112a18;
+  --green-border-light: #7bc793;
+  --green-border-dark: #2a6638;
+
+  --amber-light: #8a5600;
+  --amber-dark: #e3b341;
+  --amber-dim-light: #fff4dd;
+  --amber-dim-dark: #2c220e;
+  --amber-border-light: #e0b765;
+  --amber-border-dark: #6b5320;
+
+  --red-light: #c22722;
+  --red-dark: #ff6b63;
+  --red-dim-light: #fdeceb;
+  --red-dim-dark: #2d1316;
+  --red-border-light: #ea9a97;
+  --red-border-dark: #7d2c30;
+
+  --purple-light: #6d3cc4;
+  --purple-dark: #c297ff;
+  --purple-dim-light: #f2ecfc;
+  --purple-dim-dark: #1e162e;
+  --purple-border-light: #c3acee;
+  --purple-border-dark: #553b82;
+
+  /* Default light values + media fallback */
+  --bg: var(--bg-light);
+  --surface: var(--surface-light);
+  --surface-2: var(--surface-2-light);
+  --raised: var(--raised-light);
+  --border: var(--border-light);
+  --border-strong: var(--border-strong-light);
+  --fg: var(--fg-light);
+  --fg-muted: var(--fg-muted-light);
+  --fg-subtle: var(--fg-subtle-light);
+
+  --blue: var(--blue-light);
+  --blue-fg: var(--blue-fg-light);
+  --blue-dim: var(--blue-dim-light);
+  --blue-border: var(--blue-border-light);
+
+  --green: var(--green-light);
+  --green-dim: var(--green-dim-light);
+  --green-border: var(--green-border-light);
+
+  --amber: var(--amber-light);
+  --amber-dim: var(--amber-dim-light);
+  --amber-border: var(--amber-border-light);
+
+  --red: var(--red-light);
+  --red-dim: var(--red-dim-light);
+  --red-border: var(--red-border-light);
+
+  --purple: var(--purple-light);
+  --purple-dim: var(--purple-dim-light);
+  --purple-border: var(--purple-border-light);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: var(--bg-dark);
+    --surface: var(--surface-dark);
+    --surface-2: var(--surface-2-dark);
+    --raised: var(--raised-dark);
+    --border: var(--border-dark);
+    --border-strong: var(--border-strong-dark);
+    --fg: var(--fg-dark);
+    --fg-muted: var(--fg-muted-dark);
+    --fg-subtle: var(--fg-subtle-dark);
+
+    --blue: var(--blue-dark);
+    --blue-fg: var(--blue-fg-dark);
+    --blue-dim: var(--blue-dim-dark);
+    --blue-border: var(--blue-border-dark);
+
+    --green: var(--green-dark);
+    --green-dim: var(--green-dim-dark);
+    --green-border: var(--green-border-dark);
+
+    --amber: var(--amber-dark);
+    --amber-dim: var(--amber-dim-dark);
+    --amber-border: var(--amber-border-dark);
+
+    --red: var(--red-dark);
+    --red-dim: var(--red-dim-dark);
+    --red-border: var(--red-border-dark);
+
+    --purple: var(--purple-dark);
+    --purple-dim: var(--purple-dim-dark);
+    --purple-border: var(--purple-border-dark);
+  }
+}
+
+@supports (color: light-dark(white, black)) {
+  :root {
+    --bg: light-dark(var(--bg-light), var(--bg-dark));
+    --surface: light-dark(var(--surface-light), var(--surface-dark));
+    --surface-2: light-dark(var(--surface-2-light), var(--surface-2-dark));
+    --raised: light-dark(var(--raised-light), var(--raised-dark));
+    --border: light-dark(var(--border-light), var(--border-dark));
+    --border-strong: light-dark(var(--border-strong-light), var(--border-strong-dark));
+    --fg: light-dark(var(--fg-light), var(--fg-dark));
+    --fg-muted: light-dark(var(--fg-muted-light), var(--fg-muted-dark));
+    --fg-subtle: light-dark(var(--fg-subtle-light), var(--fg-subtle-dark));
+
+    --blue: light-dark(var(--blue-light), var(--blue-dark));
+    --blue-fg: light-dark(var(--blue-fg-light), var(--blue-fg-dark));
+    --blue-dim: light-dark(var(--blue-dim-light), var(--blue-dim-dark));
+    --blue-border: light-dark(var(--blue-border-light), var(--blue-border-dark));
+
+    --green: light-dark(var(--green-light), var(--green-dark));
+    --green-dim: light-dark(var(--green-dim-light), var(--green-dim-dark));
+    --green-border: light-dark(var(--green-border-light), var(--green-border-dark));
+
+    --amber: light-dark(var(--amber-light), var(--amber-dark));
+    --amber-dim: light-dark(var(--amber-dim-light), var(--amber-dim-dark));
+    --amber-border: light-dark(var(--amber-border-light), var(--amber-border-dark));
+
+    --red: light-dark(var(--red-light), var(--red-dark));
+    --red-dim: light-dark(var(--red-dim-light), var(--red-dim-dark));
+    --red-border: light-dark(var(--red-border-light), var(--red-border-dark));
+
+    --purple: light-dark(var(--purple-light), var(--purple-dark));
+    --purple-dim: light-dark(var(--purple-dim-light), var(--purple-dim-dark));
+    --purple-border: light-dark(var(--purple-border-light), var(--purple-border-dark));
+  }
+}
+
+:root:has(> head > meta[name='color-scheme'][content='dark']) {
+  color-scheme: dark;
+}
+
+:root:has(> head > meta[name='color-scheme'][content='light']) {
+  color-scheme: light;
+}
+
+:root {
+  accent-color: var(--blue);
+}

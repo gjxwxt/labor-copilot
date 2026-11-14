@@ -15,3 +15,4 @@ reference/
 .work/
 .DS_Store
 *.log
+*.tsbuildinfo

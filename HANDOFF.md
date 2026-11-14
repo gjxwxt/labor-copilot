@@ -23,8 +23,9 @@
 
 ## Current state
 
-- **M0 已完成**：独立目录 `/Users/imac/Documents/code/labor-copilot/` 已建好并初始化 Git；文档、规范与京东云部署脚本已就位；`reference/v0-prototype.html` 已从云端拉取留档在本地。
-- **M1 尚未初始化代码**：`package.json`、`vite.config.ts`、`src/` 均待由本会话从干净脚手架创建（Node 需用 `~/.nvm/versions/node/v24.15.0/bin` + `pnpm`）。
+- **M0 已完成**：独立目录 `/Users/imac/Documents/code/labor-copilot/` 已建好并同步至 GitHub。
+- **M1 已完成并上线预览**：`Vite + React 19 + TypeScript + Vitest + VitePWA` 工程骨架、`src/domain/` 纯函数引擎、`src/content/` 解耦医学知识库、五大产房移动端视图、30 秒配置器与 `医护亮底模式` 已全部落地，并部署到京东云 `labor-copilot-preview` 预览路径。
+- **下一阶段（M2）待办**：见 `docs/ROADMAP.md` 中的 M2 清单（真机离线 PWA 图标与飞行模式实测、产后纪念长图离线绘图导出、医学指南细化索引与无障碍审计）。
 
 ## Decisions already locked
 
