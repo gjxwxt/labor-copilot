@@ -16,3 +16,11 @@ reference/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# Python backend cache & local databases
+__pycache__/
+*.py[cod]
+*.db
+*.db-wal
+*.db-shm
+server/data/

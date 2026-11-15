@@ -64,11 +64,11 @@ describe('handover summary, timeline export & storage sanitization', () => {
     expect(recovered.profile.birthMode).toBe('induction');
     expect(recovered.profile.riskTags).toEqual(['gbs_positive']);
     expect(recovered.currentStageKey).toBe('prep');
-    expect(recovered.activeTab).toBe('companion');
+    expect(recovered.activeTab).toBe('home');
     expect(recovered.contractions).toHaveLength(1);
   });
 
-  it('migrates legacy v1 tabs and sanitizes askedQuestions map', () => {
+  it('migrates legacy v1/v2 tabs and sanitizes askedQuestions map', () => {
     const migrated = sanitizeAppState(
       {
         activeTab: 'contractions',
@@ -76,10 +76,13 @@ describe('handover summary, timeline export & storage sanitization', () => {
       },
       1000,
     );
-    expect(migrated.activeTab).toBe('companion');
+    expect(migrated.activeTab).toBe('tools');
     expect(migrated.askedQuestions).toEqual({ q_prep_policy: true });
 
+    const migratedCompanion = sanitizeAppState({ activeTab: 'companion' }, 1000);
+    expect(migratedCompanion.activeTab).toBe('tools');
+
     const migratedRedlines = sanitizeAppState({ activeTab: 'redlines' }, 1000);
-    expect(migratedRedlines.activeTab).toBe('companion');
+    expect(migratedRedlines.activeTab).toBe('home');
   });
 });

@@ -2,55 +2,79 @@ import type { AppTab } from '../../domain/types';
 
 interface BottomNavProps {
   activeTab: AppTab;
+  favoriteCount: number;
   eventCount: number;
+  hasActiveContraction: boolean;
   onSelectTab: (tab: AppTab) => void;
 }
 
 export function BottomNav({
   activeTab,
+  favoriteCount,
   eventCount,
+  hasActiveContraction,
   onSelectTab,
 }: BottomNavProps) {
   return (
     <nav className="bottom-nav" aria-label="主导航">
       <button
         type="button"
-        className={`nav-btn${activeTab === 'companion' ? ' active' : ''}`}
-        aria-current={activeTab === 'companion' ? 'page' : undefined}
-        onClick={() => onSelectTab('companion')}
+        className={`nav-btn${activeTab === 'home' ? ' active' : ''}`}
+        aria-current={activeTab === 'home' ? 'page' : undefined}
+        onClick={() => onSelectTab('home')}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M9 11l3 3L22 4" />
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+          <path d="M3 10.5L12 3l9 7.5" />
+          <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" />
         </svg>
-        <span>当下</span>
+        <span>首页</span>
       </button>
 
       <button
         type="button"
-        className={`nav-btn${activeTab === 'handover' ? ' active' : ''}`}
-        aria-current={activeTab === 'handover' ? 'page' : undefined}
-        onClick={() => onSelectTab('handover')}
+        className={`nav-btn${activeTab === 'library' ? ' active' : ''}`}
+        aria-current={activeTab === 'library' ? 'page' : undefined}
+        onClick={() => onSelectTab('library')}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="4" y="3" width="16" height="18" rx="2" />
-          <path d="M8 8h8" />
-          <path d="M8 12h8" />
-          <path d="M8 16h5" />
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          <path d="M10 8l5 3-5 3V8z" />
         </svg>
-        <span>{eventCount > 0 ? `战报 (${eventCount})` : '战报'}</span>
+        <span>知识库</span>
       </button>
 
       <button
         type="button"
-        className={`nav-btn${activeTab === 'mom' ? ' active' : ''}`}
-        aria-current={activeTab === 'mom' ? 'page' : undefined}
-        onClick={() => onSelectTab('mom')}
+        className={`nav-btn${activeTab === 'tools' ? ' active' : ''}`}
+        aria-current={activeTab === 'tools' ? 'page' : undefined}
+        onClick={() => onSelectTab('tools')}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          <circle cx="12" cy="13" r="8" />
+          <path d="M12 9v4l2.5 2.5" />
+          <path d="M9 2h6" />
         </svg>
-        <span>给她看</span>
+        <span>
+          {hasActiveContraction
+            ? '计时中'
+            : eventCount > 0
+              ? `工具 (${eventCount})`
+              : '工具'}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        className={`nav-btn${activeTab === 'me' ? ' active' : ''}`}
+        aria-current={activeTab === 'me' ? 'page' : undefined}
+        onClick={() => onSelectTab('me')}
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg>
+        <span>{favoriteCount > 0 ? `我的 (${favoriteCount})` : '我的'}</span>
       </button>
     </nav>
   );

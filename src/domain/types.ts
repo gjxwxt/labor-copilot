@@ -56,7 +56,92 @@ export interface ClinicalEvent {
   meta?: ClinicalEventMeta;
 }
 
-export type AppTab = 'companion' | 'handover' | 'mom';
+export type AppTab = 'home' | 'library' | 'tools' | 'me';
+
+export type ToolsSubtab = 'companion' | 'handover';
+
+export type LifeStageId =
+  | 'pregnant_prep'
+  | 'in_labor'
+  | 'newborn_week1'
+  | 'infant_1_3m'
+  | 'infant_4_12m';
+
+export type FocusTag =
+  | 'emergency'
+  | 'feeding'
+  | 'soothing'
+  | 'labor_prep'
+  | 'postpartum'
+  | 'safety';
+
+export type KnowledgeCategory =
+  | 'emergency'
+  | 'feeding'
+  | 'soothing'
+  | 'labor'
+  | 'postpartum'
+  | 'safety';
+
+export type InteractiveWidgetType =
+  | 'choking_5_5'
+  | 'scald_20m'
+  | 'seizure_timer';
+
+export type PostureDiagramId =
+  | 'choking'
+  | 'scald'
+  | 'seizure'
+  | 'airplane_hold'
+  | 'burping'
+  | 'safe_sleep';
+
+export interface KnowledgeStep {
+  title: string;
+  detail: string;
+  highlight?: string;
+}
+
+export interface KnowledgeCard {
+  id: string;
+  title: string;
+  subtitle: string;
+  category: KnowledgeCategory;
+  isEmergency: boolean;
+  emergencyShortLabel?: string;
+  recommendedStages: LifeStageId[];
+  focusTags: FocusTag[];
+  durationText: string;
+  keyWindow: string;
+  sourceName: string;
+  sourceUrl: string;
+  mediaUrl?: string;
+  coverTone: 'red' | 'amber' | 'blue' | 'green' | 'purple';
+  diagramId?: PostureDiagramId;
+  widgetType?: InteractiveWidgetType;
+  summary: string;
+  steps: KnowledgeStep[];
+  caution: string;
+  pinnedTip: string;
+  evidenceRef: string;
+  baseLikes: number;
+}
+
+export interface AuthUser {
+  id: number | string;
+  username: string;
+  nickname: string;
+  createdAt: number;
+}
+
+export interface CommentItem {
+  id: number | string;
+  cardId: string;
+  userId: number | string;
+  nickname: string;
+  content: string;
+  createdAt: number;
+}
 
 export type StageGroupKey = 'home' | 'hospital' | 'recovery';
 
@@ -157,6 +242,11 @@ export interface ResolvedStage {
 
 export interface AppState {
   version: 1;
+  lifeStage: LifeStageId;
+  focusTags: FocusTag[];
+  hasCompletedCalibration: boolean;
+  favoriteCardIds: string[];
+  likedCardIds: string[];
   profile: BirthProfile;
   hasCompletedOnboarding: boolean;
   currentStageKey: StageKey;

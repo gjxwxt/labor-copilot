@@ -2,15 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppState,
   AppTab,
+  AuthUser,
   BirthProfile,
   BreathingPresetId,
   ClinicalEventMeta,
   ClinicalEventType,
   ContractionIntensity,
+  FocusTag,
+  LifeStageId,
   StageKey,
   ThemePreference,
 } from './domain/types';
 import { STAGE_TEMPLATES } from './content/stages';
+import { KNOWLEDGE_CARDS, getKnowledgeCardById } from './content/knowledge';
 import {
   clampStageKey,
   getStageNavigation,
@@ -26,17 +30,31 @@ import {
 import {
   evaluateEventTransition,
   getPostpartumCountdown,
-  getStageGroup,
   type StageSuggestionPayload,
   type UrgentAlertPayload,
 } from './domain/autoAdvance';
+import {
+  isLaborFocusedStage,
+  LIFE_STAGE_META,
+} from './domain/recommendations';
 import { createClinicalEvent } from './domain/timeline';
 import { LocalStorageAdapter } from './domain/storage';
+import {
+  clearStoredAuth,
+  fetchMe,
+  getStoredAuth,
+  toggleCardFavorite,
+} from './api/client';
 import { AppHeader } from './components/layout/AppHeader';
 import { BottomNav } from './components/layout/BottomNav';
-import { CompanionView } from './components/companion/CompanionView';
-import { HandoverView } from './components/handover/HandoverView';
-import { MomView } from './components/mom/MomView';
+import { HomeView } from './components/home/HomeView';
+import { StageCalibrationDialog } from './components/home/StageCalibrationDialog';
+import { LibraryView } from './components/library/LibraryView';
+import { KnowledgeDetailDialog } from './components/library/KnowledgeDetailDialog';
+import { ToolsView } from './components/tools/ToolsView';
+import { MomSheetDialog } from './components/tools/MomSheetDialog';
+import { MeView } from './components/me/MeView';
+import { AuthDialog } from './components/auth/AuthDialog';
 import { ContractionBar } from './components/contractions/ContractionBar';
 import { ContractionsDrawer } from './components/contractions/ContractionsDrawer';
 import { RedLinesDialog } from './components/redlines/RedLinesDialog';
@@ -47,9 +65,10 @@ const THEME_STORAGE_KEY = 'labor-copilot-theme';
 const storage = new LocalStorageAdapter();
 
 const TAB_TITLES: Record<AppTab, string> = {
-  companion: '当下陪产 | 护航 · 产程陪产助手',
-  handover: '战报交接 | 护航 · 产程陪产助手',
-  mom: '给她看 | 护航 · 产程陪产助手',
+  home: '首页推荐 | 护航 · 育儿与产程护航助手',
+  library: '知识库与视频 | 护航 · 育儿与产程护航助手',
+  tools: '实用工具 | 护航 · 育儿与产程护航助手',
+  me: '我的与收藏 | 护航 · 育儿与产程护航助手',
 };
 
 function readInitialTheme(): ThemePreference {
@@ -76,12 +95,25 @@ function createId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+function mergeUniqueIds(primary: string[], secondary: string[]): string[] {
+  return Array.from(new Set([...primary, ...secondary]));
+}
+
 export function App() {
   const [state, setState] = useState<AppState>(() => storage.load());
   const [now, setNow] = useState<number>(() => Date.now());
+  const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredAuth()?.user ?? null);
+  const [authToken, setAuthToken] = useState<string | null>(() => getStoredAuth()?.token ?? null);
+
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
+  const [activeCardId, setActiveCardId] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
+  const [momSheetOpen, setMomSheetOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [contractionsOpen, setContractionsOpen] = useState(false);
   const [redLinesOpen, setRedLinesOpen] = useState(false);
+
   const [theme, setTheme] = useState<ThemePreference>(() => readInitialTheme());
   const [wakeLockActive, setWakeLockActive] = useState(false);
 
@@ -98,6 +130,32 @@ export function App() {
   useEffect(() => {
     storage.save(state);
   }, [state]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    let cancelled = false;
+    fetchMe(authToken)
+      .then((res) => {
+        if (cancelled) return;
+        setAuthUser(res.user);
+        setState((prev) => ({
+          ...prev,
+          favoriteCardIds: mergeUniqueIds(res.favoriteIds, prev.favoriteCardIds),
+        }));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Only invalidate session on explicit 401; stay logged in gracefully when offline
+        if (err && typeof err === 'object' && 'status' in err && err.status === 401) {
+          clearStoredAuth();
+          setAuthUser(null);
+          setAuthToken(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authToken]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -126,7 +184,6 @@ export function App() {
 
   useEffect(() => {
     if (!wakeLockSupported) return;
-
     let cancelled = false;
 
     const acquire = async () => {
@@ -196,7 +253,6 @@ export function App() {
     [state.events, now],
   );
 
-  // Trigger urgent takeover alert on prolonged contraction / tachysystole
   useEffect(() => {
     if (contractionEval.level !== 'urgent_alert') return;
     const latestId =
@@ -209,7 +265,7 @@ export function App() {
       id: alertId,
       title: contractionEval.headline,
       detail: contractionEval.detail,
-      primaryActionLabel: '亮出白底交接卡给护士看',
+      primaryActionLabel: '打开 1 分钟医护交接屏',
       secondaryActionLabel: '我已呼叫医护，先关提醒',
     });
   }, [contractionEval, state.contractions, dismissedAlertIds, activeUrgentAlert]);
@@ -218,7 +274,15 @@ export function App() {
     return null;
   }
 
-  const stageGroup = getStageGroup(stageNav.stage.key);
+  const hasActiveContraction = state.contractions.some((c) => !c.endedAt);
+  const showContractionDock =
+    hasActiveContraction ||
+    (state.hasCompletedCalibration && isLaborFocusedStage(state.lifeStage));
+
+  const activeCard = activeCardId ? getKnowledgeCardById(activeCardId) ?? null : null;
+  const favoriteCards = state.favoriteCardIds
+    .map((id) => getKnowledgeCardById(id))
+    .filter((card): card is NonNullable<typeof card> => Boolean(card));
 
   const activeStageSuggestion: StageSuggestionPayload | null =
     eventSuggestion ??
@@ -242,6 +306,81 @@ export function App() {
   const handleSelectTab = (tab: AppTab) => {
     setState((prev) => ({ ...prev, activeTab: tab }));
     scrollMainToTop();
+  };
+
+  const handleConfirmCalibration = (stage: LifeStageId, focusTags: FocusTag[]) => {
+    const suggestedLaborStage = LIFE_STAGE_META[stage].defaultStageKey;
+    const clampedLaborStage = clampStageKey(suggestedLaborStage, resolvedStages);
+    setState((prev) => ({
+      ...prev,
+      lifeStage: stage,
+      focusTags: focusTags.length > 0 ? focusTags : LIFE_STAGE_META[stage].defaultFocusTags,
+      hasCompletedCalibration: true,
+      currentStageKey: clampedLaborStage,
+    }));
+    scrollMainToTop();
+  };
+
+  const handleToggleFavorite = (cardId: string) => {
+    setState((prev) => {
+      const exists = prev.favoriteCardIds.includes(cardId);
+      const nextFavs = exists
+        ? prev.favoriteCardIds.filter((id) => id !== cardId)
+        : [cardId, ...prev.favoriteCardIds];
+      return { ...prev, favoriteCardIds: nextFavs };
+    });
+
+    if (authToken) {
+      void toggleCardFavorite(cardId, authToken)
+        .then((res) => {
+          setState((prev) => ({ ...prev, favoriteCardIds: res.favoriteIds }));
+        })
+        .catch(() => {
+          // Keep optimistic local favorite cleanly when offline
+        });
+    }
+  };
+
+  const handleToggleLikeLocal = (cardId: string, liked: boolean) => {
+    setState((prev) => {
+      const exists = prev.likedCardIds.includes(cardId);
+      if (liked && !exists) {
+        return { ...prev, likedCardIds: [cardId, ...prev.likedCardIds] };
+      }
+      if (!liked && exists) {
+        return { ...prev, likedCardIds: prev.likedCardIds.filter((id) => id !== cardId) };
+      }
+      return prev;
+    });
+  };
+
+  const handleAuthSuccess = async (payload: {
+    token: string;
+    user: AuthUser;
+    favoriteIds: string[];
+  }) => {
+    setAuthToken(payload.token);
+    setAuthUser(payload.user);
+    // Sync any offline local favorites up to account on login/register
+    const localOnly = state.favoriteCardIds.filter(
+      (id) => !payload.favoriteIds.includes(id),
+    );
+    let syncedFavorites = mergeUniqueIds(payload.favoriteIds, state.favoriteCardIds);
+    for (const cardId of localOnly) {
+      try {
+        const res = await toggleCardFavorite(cardId, payload.token);
+        syncedFavorites = res.favoriteIds;
+      } catch {
+        break;
+      }
+    }
+    setState((prev) => ({ ...prev, favoriteCardIds: syncedFavorites }));
+  };
+
+  const handleLogout = () => {
+    clearStoredAuth();
+    setAuthToken(null);
+    setAuthUser(null);
   };
 
   const handleSelectStage = (stageKey: StageKey) => {
@@ -435,32 +574,62 @@ export function App() {
   return (
     <>
       <AppHeader
-        stageGroup={stageGroup}
-        stageIndex={stageNav.index}
-        stageTotal={stageNav.total}
-        stageName={stageNav.stage.name}
-        elapsedMs={now - state.stageStartedAt}
-        profile={state.profile}
+        lifeStage={state.lifeStage}
         wakeLockActive={wakeLockActive}
         wakeLockSupported={wakeLockSupported}
-        postpartumCountdown={postpartumCountdown}
+        authUser={authUser}
+        onOpenCalibration={() => setCalibrationOpen(true)}
         onOpenRedLines={() => setRedLinesOpen(true)}
-        onOpenProfile={() => setProfileOpen(true)}
+        onOpenAuthOrMe={() => {
+          if (authUser) {
+            handleSelectTab('me');
+          } else {
+            setAuthInitialMode('login');
+            setAuthOpen(true);
+          }
+        }}
       />
 
       <main ref={mainRef} className="app-main">
-        {state.activeTab === 'companion' ? (
-          <CompanionView
-            profile={state.profile}
-            hasCompletedOnboarding={state.hasCompletedOnboarding}
+        {state.activeTab === 'home' ? (
+          <HomeView
+            lifeStage={state.lifeStage}
+            focusTags={state.focusTags}
+            hasCompletedCalibration={state.hasCompletedCalibration}
+            cards={KNOWLEDGE_CARDS}
+            favoriteIds={state.favoriteCardIds}
+            onConfirmCalibration={handleConfirmCalibration}
+            onOpenCalibrationModal={() => setCalibrationOpen(true)}
+            onOpenCard={(cardId) => setActiveCardId(cardId)}
+            onToggleFavorite={handleToggleFavorite}
+            onGoLibrary={() => handleSelectTab('library')}
+            onGoTools={() => handleSelectTab('tools')}
+          />
+        ) : null}
+
+        {state.activeTab === 'library' ? (
+          <LibraryView
+            cards={KNOWLEDGE_CARDS}
+            lifeStage={state.lifeStage}
+            focusTags={state.focusTags}
+            favoriteIds={state.favoriteCardIds}
+            onOpenCard={(cardId) => setActiveCardId(cardId)}
+            onToggleFavorite={handleToggleFavorite}
+          />
+        ) : null}
+
+        {state.activeTab === 'tools' ? (
+          <ToolsView
+            lifeStage={state.lifeStage}
+            state={state}
             stages={resolvedStages}
             currentStage={stageNav.stage}
             prevKey={stageNav.prevKey}
             nextKey={stageNav.nextKey}
-            checkedItems={state.checkedItems}
-            askedQuestions={state.askedQuestions}
             stageSuggestion={activeStageSuggestion}
             postpartumCountdown={postpartumCountdown}
+            now={now}
+            nurseBrightNonce={nurseBrightNonce}
             onQuickStart={handleQuickStart}
             onSelectStage={handleSelectStage}
             onToggleCheck={handleToggleCheck}
@@ -474,45 +643,57 @@ export function App() {
             }}
             onOpenProfile={() => setProfileOpen(true)}
             onGoRedLines={() => setRedLinesOpen(true)}
-            onGoMom={() => handleSelectTab('mom')}
-          />
-        ) : null}
-
-        {state.activeTab === 'handover' ? (
-          <HandoverView
-            key={nurseBrightNonce}
-            state={state}
-            currentStage={stageNav.stage}
-            now={now}
-            initialNurseBright={nurseBrightNonce > 0}
+            onOpenMomSheet={() => setMomSheetOpen(true)}
+            onOpenCard={(cardId) => setActiveCardId(cardId)}
             onAddEvent={handleAddEvent}
             onRemoveEvent={handleRemoveEvent}
           />
         ) : null}
 
-        {state.activeTab === 'mom' ? (
-          <MomView
-            currentStage={stageNav.stage}
-            breathingPreset={state.breathingPreset}
-            onChangeBreathingPreset={handleChangeBreathingPreset}
+        {state.activeTab === 'me' ? (
+          <MeView
+            authUser={authUser}
+            lifeStage={state.lifeStage}
+            focusTags={state.focusTags}
+            profile={state.profile}
+            favoriteCards={favoriteCards}
+            theme={theme}
+            wakeLockEnabled={state.wakeLockEnabled}
+            wakeLockSupported={wakeLockSupported}
+            onOpenAuth={(mode) => {
+              setAuthInitialMode(mode);
+              setAuthOpen(true);
+            }}
+            onLogout={handleLogout}
+            onOpenCalibration={() => setCalibrationOpen(true)}
+            onOpenProfile={() => setProfileOpen(true)}
+            onOpenCard={(cardId) => setActiveCardId(cardId)}
+            onToggleFavorite={handleToggleFavorite}
+            onChangeTheme={handleChangeTheme}
+            onToggleWakeLock={handleToggleWakeLock}
+            onResetAllData={handleResetAllData}
           />
         ) : null}
       </main>
 
-      <ContractionBar
-        profile={state.profile}
-        records={state.contractions}
-        now={now}
-        compactForMom={state.activeTab === 'mom'}
-        onStart={handleStartContraction}
-        onStop={handleStopContraction}
-        onSetIntensity={handleSetIntensity}
-        onOpenDrawer={() => setContractionsOpen(true)}
-      />
+      {showContractionDock ? (
+        <ContractionBar
+          profile={state.profile}
+          records={state.contractions}
+          now={now}
+          compactForMom={momSheetOpen}
+          onStart={handleStartContraction}
+          onStop={handleStopContraction}
+          onSetIntensity={handleSetIntensity}
+          onOpenDrawer={() => setContractionsOpen(true)}
+        />
+      ) : null}
 
       <BottomNav
         activeTab={state.activeTab}
+        favoriteCount={state.favoriteCardIds.length}
         eventCount={state.events.length}
+        hasActiveContraction={hasActiveContraction}
         onSelectTab={handleSelectTab}
       />
 
@@ -529,12 +710,53 @@ export function App() {
         onClearAll={handleClearContractions}
       />
 
+      <KnowledgeDetailDialog
+        card={activeCard}
+        authUser={authUser}
+        authToken={authToken}
+        isFavorite={Boolean(activeCard && state.favoriteCardIds.includes(activeCard.id))}
+        isLikedLocal={Boolean(activeCard && state.likedCardIds.includes(activeCard.id))}
+        onClose={() => setActiveCardId(null)}
+        onToggleFavorite={handleToggleFavorite}
+        onToggleLikeLocal={handleToggleLikeLocal}
+        onRequestAuth={() => {
+          setAuthInitialMode('login');
+          setAuthOpen(true);
+        }}
+      />
+
+      <StageCalibrationDialog
+        open={calibrationOpen}
+        initialStage={state.lifeStage}
+        initialFocusTags={state.focusTags}
+        onClose={() => setCalibrationOpen(false)}
+        onConfirm={handleConfirmCalibration}
+      />
+
+      <MomSheetDialog
+        open={momSheetOpen}
+        currentStage={stageNav.stage}
+        breathingPreset={state.breathingPreset}
+        onClose={() => setMomSheetOpen(false)}
+        onChangeBreathingPreset={handleChangeBreathingPreset}
+      />
+
+      <AuthDialog
+        open={authOpen}
+        initialMode={authInitialMode}
+        onClose={() => setAuthOpen(false)}
+        onSuccess={handleAuthSuccess}
+      />
+
       <RedLinesDialog
         open={redLinesOpen}
         profile={state.profile}
         currentStageKey={stageNav.stage.key}
         onClose={() => setRedLinesOpen(false)}
-        onGoHandover={() => handleSelectTab('handover')}
+        onGoHandover={() => {
+          setRedLinesOpen(false);
+          handleSelectTab('tools');
+        }}
       />
 
       <UrgentAlertModal
@@ -543,7 +765,7 @@ export function App() {
           dismissUrgentModal();
           setContractionsOpen(false);
           setNurseBrightNonce((n) => n + 1);
-          handleSelectTab('handover');
+          handleSelectTab('tools');
         }}
         onDismiss={dismissUrgentModal}
       />

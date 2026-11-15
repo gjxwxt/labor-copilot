@@ -1,88 +1,72 @@
-import type { BirthProfile, StageGroupKey } from '../../domain/types';
-import { formatProfileShortLabel } from '../../domain/profile';
-import { formatClockDuration } from '../../domain/contractions';
-import { STAGE_GROUP_META, type PostpartumCountdown } from '../../domain/autoAdvance';
+import type { AuthUser, LifeStageId } from '../../domain/types';
+import { LIFE_STAGE_META } from '../../domain/recommendations';
 
 interface AppHeaderProps {
-  stageGroup: StageGroupKey;
-  stageIndex: number;
-  stageTotal: number;
-  stageName: string;
-  elapsedMs: number;
-  profile: BirthProfile;
+  lifeStage: LifeStageId;
   wakeLockActive: boolean;
   wakeLockSupported: boolean;
-  postpartumCountdown: PostpartumCountdown | null;
+  authUser: AuthUser | null;
+  onOpenCalibration: () => void;
   onOpenRedLines: () => void;
-  onOpenProfile: () => void;
+  onOpenAuthOrMe: () => void;
 }
 
 export function AppHeader({
-  stageGroup,
-  stageIndex,
-  stageTotal,
-  stageName,
-  elapsedMs,
-  profile,
+  lifeStage,
   wakeLockActive,
   wakeLockSupported,
-  postpartumCountdown,
+  authUser,
+  onOpenCalibration,
   onOpenRedLines,
-  onOpenProfile,
+  onOpenAuthOrMe,
 }: AppHeaderProps) {
-  const showPost2hTimer = Boolean(postpartumCountdown && !postpartumCountdown.completed);
+  const stageMeta = LIFE_STAGE_META[lifeStage];
 
   return (
     <header className="app-header">
       <div className="header-inner">
         <div className="header-meta-row">
-          <div className="stage-eyebrow">
-            <span>
-              {STAGE_GROUP_META[stageGroup].label} · {stageIndex + 1}/{stageTotal}
+          <div className="brand-block">
+            <span className="brand-mark" aria-hidden="true">
+              护航
             </span>
+            <button
+              type="button"
+              className="stage-chip-btn"
+              onClick={onOpenCalibration}
+              title="点击重新校准当前阶段与关注重点"
+            >
+              <span>{stageMeta.shortLabel}</span>
+              <span className="chip-caret" aria-hidden="true">
+                切换 ▾
+              </span>
+            </button>
             {wakeLockSupported && wakeLockActive ? (
-              <span aria-label="屏幕常亮已开启">· 常亮</span>
+              <span className="wakelock-tag" aria-label="屏幕常亮已开启">
+                · 常亮
+              </span>
             ) : null}
           </div>
 
           <div className="header-actions">
-            {showPost2hTimer && postpartumCountdown ? (
-              <span className="post2h-pill" title="产后 2 小时黄金观察期倒计时">
-                2h {postpartumCountdown.formattedRemaining}
-              </span>
-            ) : (
-              <span className="elapsed-badge" title="本阶段已停留时长">
-                {formatClockDuration(elapsedMs)}
-              </span>
-            )}
             <button
               type="button"
               className="pill-btn danger-pill compact"
               onClick={onOpenRedLines}
-              aria-label="查看急诊红线与呼救指南"
+              aria-label="查看急救与产科红线"
             >
               <span className="mini-dot" aria-hidden="true" />
-              红线
+              急救红线
             </button>
             <button
               type="button"
-              className="pill-btn active compact"
-              onClick={onOpenProfile}
-              aria-label="打开孕产画像与设置"
+              className={`pill-btn compact${authUser ? ' active' : ''}`}
+              onClick={onOpenAuthOrMe}
+              aria-label={authUser ? `已登录 ${authUser.nickname}` : '登录或注册账号'}
             >
-              {formatProfileShortLabel(profile)}
+              {authUser ? authUser.nickname : '登录'}
             </button>
           </div>
-        </div>
-
-        <h1 className="stage-title full-row">{stageName}</h1>
-
-        <div className="progress-track" aria-hidden="true">
-          {Array.from({ length: stageTotal }, (_, idx) => {
-            const stateClass =
-              idx < stageIndex ? 'done' : idx === stageIndex ? 'now' : '';
-            return <span key={idx} className={stateClass} />;
-          })}
         </div>
       </div>
     </header>

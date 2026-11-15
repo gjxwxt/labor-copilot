@@ -7,6 +7,8 @@ import type {
   ClinicalEvent,
   ContractionRecord,
   EpiduralIntent,
+  FocusTag,
+  LifeStageId,
   Parity,
   PartnerAccess,
   RiskTag,
@@ -34,8 +36,23 @@ const VALID_RISKS: RiskTag[] = [
 ];
 const VALID_PARTNER: PartnerAccess[] = ['yes', 'no', 'unknown'];
 const VALID_EPIDURAL: EpiduralIntent[] = ['wanted', 'open', 'no', 'unknown'];
-const VALID_TABS: AppTab[] = ['companion', 'handover', 'mom'];
+const VALID_TABS: AppTab[] = ['home', 'library', 'tools', 'me'];
 const VALID_BREATHING: BreathingPresetId[] = ['4-6', '4-4', '2-2'];
+const VALID_LIFE_STAGES: LifeStageId[] = [
+  'pregnant_prep',
+  'in_labor',
+  'newborn_week1',
+  'infant_1_3m',
+  'infant_4_12m',
+];
+const VALID_FOCUS_TAGS: FocusTag[] = [
+  'emergency',
+  'feeding',
+  'soothing',
+  'labor_prep',
+  'postpartum',
+  'safety',
+];
 const VALID_STAGES: StageKey[] = [
   'prep',
   'ripening',
@@ -55,6 +72,11 @@ const VALID_STAGES: StageKey[] = [
 export function createInitialState(now: number = Date.now()): AppState {
   return {
     version: 1,
+    lifeStage: 'pregnant_prep',
+    focusTags: ['emergency', 'labor_prep'],
+    hasCompletedCalibration: false,
+    favoriteCardIds: [],
+    likedCardIds: [],
     profile: createDefaultProfile(),
     hasCompletedOnboarding: false,
     currentStageKey: 'prep',
@@ -63,7 +85,7 @@ export function createInitialState(now: number = Date.now()): AppState {
     askedQuestions: {},
     contractions: [],
     events: [],
-    activeTab: 'companion',
+    activeTab: 'home',
     breathingPreset: '4-6',
     wakeLockEnabled: true,
   };
@@ -105,48 +127,46 @@ function sanitizeProfile(raw: unknown): BirthProfile {
 
 function sanitizeContractions(raw: unknown): ContractionRecord[] {
   if (!Array.isArray(raw)) return [];
-  const result: ContractionRecord[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
+  return raw.filter((item): item is ContractionRecord => {
+    if (!item || typeof item !== 'object') return false;
     const obj = item as Record<string, unknown>;
-    if (typeof obj.id !== 'string' || typeof obj.startedAt !== 'number') continue;
-    const record: ContractionRecord = {
-      id: obj.id,
-      startedAt: obj.startedAt,
-      ...(typeof obj.endedAt === 'number' ? { endedAt: obj.endedAt } : {}),
-      ...(obj.intensity === 1 || obj.intensity === 2 || obj.intensity === 3
-        ? { intensity: obj.intensity }
-        : {}),
-    };
-    result.push(record);
-  }
-  return result;
+    return typeof obj.id === 'string' && typeof obj.startedAt === 'number';
+  });
 }
 
 function sanitizeEvents(raw: unknown): ClinicalEvent[] {
   if (!Array.isArray(raw)) return [];
-  const result: ClinicalEvent[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
+  return raw.filter((item): item is ClinicalEvent => {
+    if (!item || typeof item !== 'object') return false;
     const obj = item as Record<string, unknown>;
-    if (
-      typeof obj.id !== 'string' ||
-      typeof obj.type !== 'string' ||
-      typeof obj.at !== 'number'
-    ) {
-      continue;
-    }
-    result.push({
-      id: obj.id,
-      type: obj.type as ClinicalEvent['type'],
-      at: obj.at,
-      ...(typeof obj.detail === 'string' ? { detail: obj.detail } : {}),
-      ...(obj.meta && typeof obj.meta === 'object'
-        ? { meta: obj.meta as ClinicalEvent['meta'] }
-        : {}),
-    });
+    return (
+      typeof obj.id === 'string' &&
+      typeof obj.type === 'string' &&
+      typeof obj.at === 'number'
+    );
+  });
+}
+
+function sanitizeStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return Array.from(
+    new Set(raw.filter((item): item is string => typeof item === 'string' && item.length > 0)),
+  );
+}
+
+function sanitizeActiveTab(rawTab: unknown): AppTab {
+  if (VALID_TABS.includes(rawTab as AppTab)) {
+    return rawTab as AppTab;
   }
-  return result;
+  if (
+    rawTab === 'companion' ||
+    rawTab === 'handover' ||
+    rawTab === 'mom' ||
+    rawTab === 'contractions'
+  ) {
+    return 'tools';
+  }
+  return 'home';
 }
 
 export function sanitizeAppState(raw: unknown, now: number = Date.now()): AppState {
@@ -168,15 +188,23 @@ export function sanitizeAppState(raw: unknown, now: number = Date.now()): AppSta
     }
   }
 
-  const rawTab = obj.activeTab;
-  const activeTab: AppTab = VALID_TABS.includes(rawTab as AppTab)
-    ? (rawTab as AppTab)
-    : rawTab === 'contractions' || rawTab === 'redlines'
-      ? 'companion'
-      : initial.activeTab;
+  const lifeStage: LifeStageId = VALID_LIFE_STAGES.includes(obj.lifeStage as LifeStageId)
+    ? (obj.lifeStage as LifeStageId)
+    : initial.lifeStage;
+
+  const rawFocusTags = Array.isArray(obj.focusTags)
+    ? obj.focusTags.filter((tag): tag is FocusTag => VALID_FOCUS_TAGS.includes(tag as FocusTag))
+    : [];
+  const focusTags =
+    rawFocusTags.length > 0 ? Array.from(new Set(rawFocusTags)) : initial.focusTags;
 
   return {
     version: 1,
+    lifeStage,
+    focusTags,
+    hasCompletedCalibration: Boolean(obj.hasCompletedCalibration),
+    favoriteCardIds: sanitizeStringList(obj.favoriteCardIds),
+    likedCardIds: sanitizeStringList(obj.likedCardIds),
     profile: sanitizeProfile(obj.profile),
     hasCompletedOnboarding: Boolean(obj.hasCompletedOnboarding),
     currentStageKey: VALID_STAGES.includes(obj.currentStageKey as StageKey)
@@ -188,7 +216,7 @@ export function sanitizeAppState(raw: unknown, now: number = Date.now()): AppSta
     askedQuestions,
     contractions: sanitizeContractions(obj.contractions),
     events: sanitizeEvents(obj.events),
-    activeTab,
+    activeTab: sanitizeActiveTab(obj.activeTab),
     breathingPreset: VALID_BREATHING.includes(obj.breathingPreset as BreathingPresetId)
       ? (obj.breathingPreset as BreathingPresetId)
       : initial.breathingPreset,
