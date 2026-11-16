@@ -2,37 +2,129 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MANIFEST="$ROOT_DIR/app.manifest.json"
 ENV_FILE="${DEPLOY_ENV_FILE:-$ROOT_DIR/.env.deploy}"
 
-if [ ! -f "$ENV_FILE" ]; then
+ONLY_MODE="static"
+DRY_RUN=0
+NO_BUILD=0
+
+# Backwards compatibility: allow `scripts/deploy.sh <dist-dir>` or `--all|--static|--api`
+CUSTOM_DIST=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --static) ONLY_MODE="static" ;;
+    --api) ONLY_MODE="api" ;;
+    --all) ONLY_MODE="all" ;;
+    --check) DRY_RUN=1 ;;
+    --no-build) NO_BUILD=1 ;;
+    -*)
+      echo "Usage: scripts/deploy.sh [--all|--static|--api] [--check] [--no-build]" >&2
+      exit 1
+      ;;
+    *)
+      CUSTOM_DIST="$1"
+      NO_BUILD=1
+      ;;
+  esac
+  shift
+done
+
+[ -f "$MANIFEST" ] || { echo "Missing $MANIFEST" >&2; exit 1; }
+
+eval "$(
+  python3 - "$MANIFEST" <<'PY'
+import json, shlex, sys
+m = json.load(open(sys.argv[1]))
+fe = m.get("frontend") or {}
+be = m.get("backend") or {}
+vals = {
+    "M_SLUG": m.get("slug", ""),
+    "M_MODE": m.get("mode", "static"),
+    "M_PUBLIC": "1" if m.get("public") else "0",
+    "M_SPA": "1" if m.get("spa") else "0",
+    "M_DIST_DIR": fe.get("distDir", "dist"),
+    "M_API_SERVICE": be.get("serviceName", ""),
+    "M_API_DIR": be.get("dir", "server"),
+    "M_API_PORT": str(be.get("port", "")),
+    "M_API_HEALTH": be.get("healthPath", "/health"),
+    "M_API_SECRET_KEY": be.get("secretEnvKey", ""),
+}
+for k, v in vals.items():
+    print(f"{k}={shlex.quote(v)}")
+PY
+)"
+
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+elif [ "$DRY_RUN" -ne 1 ]; then
   echo "Missing $ENV_FILE. Copy .env.deploy.example to .env.deploy first." >&2
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-source "$ENV_FILE"
-set +a
+DEPLOY_SLUG="${DEPLOY_SLUG:-$M_SLUG}"
+DEPLOY_PUBLIC="${DEPLOY_PUBLIC:-$M_PUBLIC}"
+DEPLOY_SPA="${DEPLOY_SPA:-$M_SPA}"
+API_SERVICE="${API_SERVICE:-$M_API_SERVICE}"
+API_PORT="${API_PORT:-$M_API_PORT}"
+DEPLOY_SSH_PORT="${DEPLOY_SSH_PORT:-22}"
+DEPLOY_USER="${DEPLOY_USER:-root}"
 
-: "${DEPLOY_USER:?DEPLOY_USER is required}"
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "[CHECK] slug=$DEPLOY_SLUG mode=$M_MODE only=$ONLY_MODE host=${DEPLOY_HOST:-unset} api=${API_SERVICE:-none}:${API_PORT:-none}"
+  exit 0
+fi
+
 : "${DEPLOY_HOST:?DEPLOY_HOST is required}"
 : "${DEPLOY_SSH_KEY:?DEPLOY_SSH_KEY is required}"
 : "${DEPLOY_SLUG:?DEPLOY_SLUG is required}"
 
-DIST_DIR="${1:-$ROOT_DIR/dist}"
-if [ ! -d "$DIST_DIR" ]; then
-  echo "Build directory not found: $DIST_DIR (run pnpm build first)" >&2
-  exit 1
+SSH_OPTS=(-i "$DEPLOY_SSH_KEY" -p "$DEPLOY_SSH_PORT" -o StrictHostKeyChecking=no)
+REMOTE="${DEPLOY_USER}@${DEPLOY_HOST}"
+
+deploy_api() {
+  local api_dir="$ROOT_DIR/${M_API_DIR:-server}"
+  [ -d "$api_dir" ] || { echo "Backend dir not found: $api_dir" >&2; exit 1; }
+  local tmp="/tmp/quick-api-${API_SERVICE}-$$"
+  local extra_flags=()
+  [ -n "$M_API_HEALTH" ] && extra_flags+=(--health "$M_API_HEALTH")
+  [ -n "$M_API_SECRET_KEY" ] && extra_flags+=(--secret-env "$M_API_SECRET_KEY")
+
+  echo "==> Deploying API '$API_SERVICE' to $REMOTE:$API_PORT..."
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "rm -rf '$tmp' && mkdir -p '$tmp'"
+  COPYFILE_DISABLE=1 tar --exclude='__pycache__' --exclude='*.pyc' --exclude='data' --exclude='.env' \
+    -czf - -C "$api_dir" . | ssh "${SSH_OPTS[@]}" "$REMOTE" "tar -xzf - -C '$tmp'"
+  ssh "${SSH_OPTS[@]}" "$REMOTE" \
+    "/opt/apps/bin/quick-deploy-api '$API_SERVICE' '$tmp' '$DEPLOY_SLUG' '$API_PORT' ${extra_flags[*]:-} && rm -rf '$tmp'"
+}
+
+deploy_static() {
+  local dist_dir="${CUSTOM_DIST:-$ROOT_DIR/${M_DIST_DIR:-dist}}"
+  if [ "$NO_BUILD" -ne 1 ] && [ -z "$CUSTOM_DIST" ]; then
+    (cd "$ROOT_DIR" && pnpm build)
+  fi
+  [ -d "$dist_dir" ] || { echo "Build directory not found: $dist_dir (run pnpm build first)" >&2; exit 1; }
+
+  local tmp="/tmp/quick-deploy-${DEPLOY_SLUG}-$$"
+  local flags=()
+  [ "$DEPLOY_PUBLIC" = "1" ] && flags+=(--public)
+  [ "$DEPLOY_SPA" = "1" ] && flags+=(--spa)
+
+  echo "==> Deploying static '$DEPLOY_SLUG' to $REMOTE..."
+  ssh "${SSH_OPTS[@]}" "$REMOTE" "rm -rf '$tmp' && mkdir -p '$tmp'"
+  COPYFILE_DISABLE=1 tar -czf - -C "$dist_dir" . | ssh "${SSH_OPTS[@]}" "$REMOTE" "tar -xzf - -C '$tmp'"
+  ssh "${SSH_OPTS[@]}" "$REMOTE" \
+    "/opt/apps/bin/quick-deploy-static '$DEPLOY_SLUG' '$tmp' ${flags[*]:-} && rm -rf '$tmp'"
+}
+
+if [ "$ONLY_MODE" = "api" ]; then
+  deploy_api
+elif [ "$ONLY_MODE" = "all" ]; then
+  deploy_api
+  deploy_static
+else
+  deploy_static
 fi
-
-FLAGS=()
-[ "${DEPLOY_PUBLIC:-0}" = "1" ] && FLAGS+=("--public")
-[ "${DEPLOY_SPA:-0}" = "1" ] && FLAGS+=("--spa")
-
-REMOTE_TMP="/tmp/quick-deploy-${DEPLOY_SLUG}-$$"
-SSH_OPTS=(-i "$DEPLOY_SSH_KEY" -o StrictHostKeyChecking=no)
-
-ssh "${SSH_OPTS[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "rm -rf '$REMOTE_TMP' && mkdir -p '$REMOTE_TMP'"
-COPYFILE_DISABLE=1 tar -czf - -C "$DIST_DIR" . | ssh "${SSH_OPTS[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" "tar -xzf - -C '$REMOTE_TMP'"
-ssh "${SSH_OPTS[@]}" "${DEPLOY_USER}@${DEPLOY_HOST}" \
-  "/opt/apps/bin/quick-deploy-static '$DEPLOY_SLUG' '$REMOTE_TMP' ${FLAGS[*]:-} && rm -rf '$REMOTE_TMP'"

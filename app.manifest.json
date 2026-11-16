@@ -1,0 +1,18 @@
+{
+  "slug": "labor-copilot-preview",
+  "name": "护航 · 育儿与产程护航助手",
+  "mode": "fullstack",
+  "public": false,
+  "spa": false,
+  "frontend": {
+    "buildCommand": "pnpm build",
+    "distDir": "dist"
+  },
+  "backend": {
+    "serviceName": "labor-api",
+    "dir": "server",
+    "port": 3301,
+    "healthPath": "/health",
+    "secretEnvKey": "LABOR_API_SECRET"
+  }
+}
